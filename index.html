@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="doxy">
-<!-- build: 2026-09-06e delight pass: dose-pop, day-cleared, bar bump, banner pop, focus rings -->
+<!-- build: 2026-09-06f delight pass: dose-pop, day-cleared, bar bump, banner pop, focus rings -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💊</text></svg>">
 <style>
@@ -181,7 +181,7 @@
       </div>
       <div class="lock-note">same passcode you use for sync</div>
       <div class="lock-note"><a href="#" id="lockReset" style="color:var(--muted);">forgot it? reset this device</a></div>
-      <div class="lock-note" style="opacity:.5">build 2026-09-06e</div>
+      <div class="lock-note" style="opacity:.5">build 2026-09-06f</div>
     </div>
   </div>
 
@@ -407,8 +407,10 @@ function render() {
         var c = document.createElement("div");
         c.className = "cell";
         var taken = state.doses[idx] !== undefined;
-        if (taken) { c.classList.add("taken"); c.textContent = "✓"; }
-        if (taken && idx === lastLoggedIdx) { c.classList.add("just-logged"); }
+        if (taken) {
+          c.classList.add("taken"); c.textContent = "✓";
+          if (idx === lastLoggedIdx) c.classList.add("just-logged");
+        }
         else {
           c.textContent = half === 0 ? "☀️" : "🌙";
           if (SLOTS[idx].t.getTime() > now) c.classList.add("future");
@@ -668,7 +670,7 @@ document.getElementById("lockReset").onclick = function(e) {
 // A tab left open keeps running its old build; Pages can also serve a cached
 // copy briefly. If the deployed build is newer than this one, say so instead
 // of letting anyone trust stale UI.
-var BUILD = "2026-09-06e";
+var BUILD = "2026-09-06f";
 function checkBuild() {
   fetch("index.html?buildcheck=" + Date.now(), { cache: "no-store" }).then(function(r){ return r.text(); }).then(function(html) {
     var m = html.match(/<!-- build: (\S+)/);
