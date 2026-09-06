@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="doxy">
-<!-- build: 2026-09-06 desktop layout + passcode lock -->
+<!-- build: 2026-09-06c passcode reset: first-run create + per-device reset -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💊</text></svg>">
 <style>
@@ -155,7 +155,13 @@
       <input id="lockInput" class="lock-input" type="password" inputmode="text" autocomplete="off" placeholder="passcode">
       <button class="big-btn primary" id="lockBtn">unlock</button>
       <div id="lockErr"></div>
+      <div id="lockCreate" style="display:none">
+        <div class="hint" style="margin-top:10px;">no board found for that passcode - first time here?</div>
+        <button class="big-btn secondary" id="createBtn">create a new board with this passcode</button>
+        <div class="lock-note">use the same passcode on your other devices to sync them</div>
+      </div>
       <div class="lock-note">same passcode you use for sync</div>
+      <div class="lock-note"><a href="#" id="lockReset" style="color:var(--muted);">forgot it? reset this device</a></div>
     </div>
   </div>
 
@@ -539,12 +545,17 @@ document.getElementById("syncReset").onclick = function(e) {
 /* ---------- passcode lock ---------- */
 // One passcode covers both access and sync (same SHA-256 scheme).
 // Device has synced before -> verify against the stored hash, works offline.
-// Fresh device -> the hash only verifies by pulling that device's sync row from
-// supabase; a wrong passcode finds no row and never unlocks.
+// Fresh device -> pull that passcode's sync row from supabase: row found ->
+// unlock and sync; no row -> first run, offer to create a new board under it.
+// "reset this device" drops only the local sync key so a new passcode can be
+// created; the dose log in local storage is untouched and migrates up.
 var lockInput = document.getElementById("lockInput");
 var lockBtn = document.getElementById("lockBtn");
 var lockErr = document.getElementById("lockErr");
+var lockCreate = document.getElementById("lockCreate");
+var createBtn = document.getElementById("createBtn");
 var appStarted = false;
+var pendingHash = null; // passcode hash waiting on a "create board" confirm
 
 function startApp() {
   if (appStarted) return;
@@ -575,6 +586,8 @@ function attemptUnlock() {
   lockBtn.disabled = true;
   lockBtn.textContent = "checking...";
   lockErr.textContent = "";
+  lockCreate.style.display = "none";
+  pendingHash = null;
   sha256hex("doxy-tracker-sync:" + v).then(function(hash) {
     if (syncKey) { // this device knows the hash already
       if (hash === syncKey) { unlock(); } else { lockFail("wrong passcode"); }
@@ -588,15 +601,41 @@ function attemptUnlock() {
         try { localStorage.setItem(SYNC_KEY_LS, hash); } catch(e) {}
         unlock();
       } else {
-        lockFail("wrong passcode");
+        // no board under this passcode - first run (or a freshly reset device):
+        // offer to create one instead of a dead-end "wrong passcode"
+        pendingHash = hash;
+        lockCreate.style.display = "block";
+        lockBtn.disabled = false;
+        lockBtn.textContent = "unlock";
+        lockInput.select();
       }
     }).catch(function(){ lockFail("couldn't verify - check your connection"); });
   });
 }
+createBtn.onclick = function() {
+  if (!pendingHash) return;
+  syncKey = pendingHash;
+  pendingHash = null;
+  try { localStorage.setItem(SYNC_KEY_LS, syncKey); } catch(e) {}
+  lockCreate.style.display = "none";
+  lockInput.value = "";
+  unlock(); // startApp pulls (no row yet) then pushes this device's state up under the new key
+};
+document.getElementById("lockReset").onclick = function(e) {
+  e.preventDefault();
+  try { localStorage.removeItem(SYNC_KEY_LS); } catch(err) {}
+  syncKey = null;
+  pendingHash = null;
+  lockCreate.style.display = "none";
+  lockInput.value = "";
+  lockErr.textContent = "device reset - enter a new passcode to create your board";
+  lockInput.focus();
+};
 lockBtn.onclick = attemptUnlock;
 lockInput.addEventListener("keydown", function(e) { if (e.key === "Enter") attemptUnlock(); });
 lockInput.focus();
 </script>
 </body>
 </html>
+
 
