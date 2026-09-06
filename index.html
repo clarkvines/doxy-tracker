@@ -168,6 +168,7 @@ function load() {
       seed.naproxen.sort();
     }
   } catch(e) {}
+  try { localStorage.setItem(KEY, JSON.stringify(seed)); localStorage.removeItem(OLD_KEY); } catch(e) {}
   return seed;
 }
 var state = load();
