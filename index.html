@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="doxy">
-<!-- build: 2026-09-06c passcode reset: first-run create + per-device reset -->
+<!-- build: 2026-09-06d visible build stamp + stale-build reload banner + clearer sync-unavailable state -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💊</text></svg>">
 <style>
@@ -146,6 +146,7 @@
 </style>
 </head>
 <body class="locked">
+  <div id="updateBanner" style="display:none;position:fixed;left:0;right:0;bottom:0;background:var(--warn);color:#000;text-align:center;padding:12px;font-size:14px;font-weight:600;cursor:pointer;z-index:99;" onclick="location.reload()">new version of this page is available - tap to reload</div>
 
   <div id="lock">
     <div class="lock-card">
@@ -162,6 +163,7 @@
       </div>
       <div class="lock-note">same passcode you use for sync</div>
       <div class="lock-note"><a href="#" id="lockReset" style="color:var(--muted);">forgot it? reset this device</a></div>
+      <div class="lock-note" style="opacity:.5">build 2026-09-06d</div>
     </div>
   </div>
 
@@ -487,6 +489,7 @@ function showSyncUI() {
   document.getElementById("syncSetup").style.display = on ? "none" : "block";
   document.getElementById("syncOn").style.display = on ? "block" : "none";
   if (on) setSyncStatus("on");
+  else if (!sb && syncKey) setSyncStatus("sync client failed to load - reload");
 }
 function syncPush() {
   if (!syncEnabled()) return;
@@ -631,6 +634,23 @@ document.getElementById("lockReset").onclick = function(e) {
   lockErr.textContent = "device reset - enter a new passcode to create your board";
   lockInput.focus();
 };
+/* ---------- stale-build check ---------- */
+// A tab left open keeps running its old build; Pages can also serve a cached
+// copy briefly. If the deployed build is newer than this one, say so instead
+// of letting anyone trust stale UI.
+var BUILD = "2026-09-06d";
+function checkBuild() {
+  fetch("index.html?buildcheck=" + Date.now(), { cache: "no-store" }).then(function(r){ return r.text(); }).then(function(html) {
+    var m = html.match(/<!-- build: (\S+)/);
+    if (m && m[1] !== BUILD) {
+      var b = document.getElementById("updateBanner");
+      if (b) b.style.display = "block";
+    }
+  }).catch(function(){});
+}
+checkBuild();
+setInterval(checkBuild, 300000);
+
 lockBtn.onclick = attemptUnlock;
 lockInput.addEventListener("keydown", function(e) { if (e.key === "Enter") attemptUnlock(); });
 lockInput.focus();
