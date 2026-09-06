@@ -63,6 +63,7 @@
   }
   .big-btn.primary { background: var(--accent); color: #052e12; }
   .big-btn.secondary { background: #21262d; color: var(--text); border: 1px solid var(--border); }
+  .big-btn.primary:disabled { background: #21262d; color: var(--muted); border: 1px solid var(--border); cursor: default; }
   /* naproxen */
   .nap-last { font-size: 14px; margin-top: 8px; color: var(--muted); }
   .nap-last b { color: var(--text); }
@@ -120,23 +121,56 @@ function slotDate(dayIdx, half) { return new Date(slotISO(dayIdx, half)); }
 var SLOTS = [];
 for (var i = 0; i < DAYS; i++) { SLOTS.push({day:i, half:0, t: slotDate(i,0)}); SLOTS.push({day:i, half:1, t: slotDate(i,1)}); }
 
-var KEY = "doxy-tracker-v1";
-var state = load();
-function load() {
-  try {
-    var s = JSON.parse(localStorage.getItem(KEY));
-    if (s && s.doses) return s;
-  } catch(e) {}
-  // seed: dose 1 Sept 5 ~9am, dose 2 Sept 5 ~9pm, dose 3 Sept 6 8:45am
+var KEY = "doxy-tracker-v2";
+var OLD_KEY = "doxy-tracker-v1";
+// v1's pre-seeded doses, so migration can tell seed entries from ones he logged himself
+var V1_SEED = {
+  "0": "2026-09-05T09:00:00-04:00",
+  "1": "2026-09-05T21:00:00-04:00",
+  "2": "2026-09-06T08:45:00-04:00"
+};
+// Actual history: doxy Sept 5 ~12:00am (hospital, outside the 9/9 slots), Sept 5 ~9am,
+// Sept 5 ~9pm, Sept 6 ~8:45am. Naproxen: Sept 5 morning, Sept 5 night, Sept 6 morning.
+function freshSeed() {
   return {
     doses: {
       "0": "2026-09-05T09:00:00-04:00",
       "1": "2026-09-05T21:00:00-04:00",
       "2": "2026-09-06T08:45:00-04:00"
     },
-    naproxen: []
+    extras: ["2026-09-05T00:00:00-04:00"], // hospital dose, off-schedule
+    naproxen: [
+      "2026-09-05T08:00:00-04:00",
+      "2026-09-05T21:30:00-04:00",
+      "2026-09-06T08:45:00-04:00"
+    ]
   };
 }
+function load() {
+  try {
+    var s = JSON.parse(localStorage.getItem(KEY));
+    if (s && s.doses) { if (!s.extras) s.extras = []; return s; }
+  } catch(e) {}
+  var seed = freshSeed();
+  try {
+    var old = JSON.parse(localStorage.getItem(OLD_KEY));
+    if (old && old.doses) {
+      // keep anything that isn't a byte-identical v1 seed entry (i.e. he logged/toggled it)
+      Object.keys(old.doses).forEach(function(k) {
+        if (!(k in V1_SEED && old.doses[k] === V1_SEED[k])) seed.doses[k] = old.doses[k];
+      });
+      // merge his naproxen logs, dedupe against seed entries within 1h
+      (old.naproxen || []).forEach(function(t) {
+        var tm = new Date(t).getTime();
+        var dupe = seed.naproxen.some(function(x) { return Math.abs(new Date(x).getTime() - tm) < 3600000; });
+        if (!dupe) seed.naproxen.push(t);
+      });
+      seed.naproxen.sort();
+    }
+  } catch(e) {}
+  return seed;
+}
+var state = load();
 function save() { localStorage.setItem(KEY, JSON.stringify(state)); }
 
 function fmtWhen(d) {
@@ -151,7 +185,7 @@ function relTime(d) {
   var str = h > 0 ? h + "h " + m + "m" : m + "m";
   return past ? str + " ago" : "in " + str;
 }
-function takenCount() { return Object.keys(state.doses).length; }
+function takenCount() { return Object.keys(state.doses).length + (state.extras ? state.extras.length : 0); }
 
 function nextSlot() {
   var now = Date.now();
@@ -180,15 +214,20 @@ function render() {
     document.getElementById("nextWhen").textContent = "🎉";
     document.getElementById("nextIn").textContent = "";
     takeBtn.style.display = "none";
+    takeBtn.disabled = true;
   } else {
     banner.style.display = "none";
     takeBtn.style.display = "block";
     var overdue = ns.overdue;
+    var slotName = (ns.slot.half === 0 ? "☀️ 9:00 AM" : "🌙 9:00 PM") + " - " + ns.slot.t.toLocaleDateString("en-US",{weekday:"short", month:"short", day:"numeric", timeZone:"America/New_York"});
     document.getElementById("nextLabel").textContent = overdue ? "dose due" : "next dose";
     var w = document.getElementById("nextWhen");
-    w.textContent = (ns.slot.half === 0 ? "☀️ 9:00 AM" : "🌙 9:00 PM") + " - " + ns.slot.t.toLocaleDateString("en-US",{weekday:"short", month:"short", day:"numeric", timeZone:"America/New_York"});
+    w.textContent = slotName;
     w.className = "when" + (overdue ? " overdue" : "");
     document.getElementById("nextIn").textContent = overdue ? "was due " + relTime(ns.slot.t) : relTime(ns.slot.t);
+    // gate the button: only enabled while a slot has arrived and is untaken
+    takeBtn.disabled = !overdue;
+    takeBtn.textContent = overdue ? "Take it now ✓" : "Next dose: " + slotName;
   }
 
   // naproxen
@@ -241,7 +280,7 @@ function render() {
 
 document.getElementById("takeBtn").onclick = function() {
   var ns = nextSlot();
-  if (!ns) return;
+  if (!ns || !ns.overdue) return; // locked until a slot actually arrives
   state.doses[ns.idx] = new Date().toISOString();
   save(); render();
 };
