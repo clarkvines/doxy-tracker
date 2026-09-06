@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>doxy tracker</title>
+<meta name="theme-color" content="#0d1117">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="doxy">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💊</text></svg>">
+<style>
+  :root {
+    --bg: #0d1117;
+    --card: #161b22;
+    --border: #262c36;
+    --accent: #4ade80;
+    --accent-dim: #1a3a28;
+    --warn: #fbbf24;
+    --text: #e6edf3;
+    --muted: #7d8590;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    max-width: 480px; margin: 0 auto; padding: 16px 16px 48px;
+    min-height: 100vh;
+  }
+  h1 { font-size: 22px; margin: 8px 0 2px; letter-spacing: -0.5px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 16px; margin-bottom: 14px;
+  }
+  /* progress */
+  .bar-wrap { background: var(--accent-dim); border-radius: 99px; height: 14px; overflow: hidden; margin: 10px 0 6px; }
+  .bar { background: var(--accent); height: 100%; border-radius: 99px; transition: width .4s ease; }
+  .progress-line { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); }
+  .progress-line b { color: var(--text); }
+  /* next dose */
+  .next-dose { text-align: center; }
+  .next-dose .when { font-size: 26px; font-weight: 700; margin: 2px 0; }
+  .next-dose .label { color: var(--muted); font-size: 13px; }
+  .overdue { color: var(--warn); }
+  /* dose grid */
+  .grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-top: 12px; }
+  .cell {
+    aspect-ratio: 1; border-radius: 8px; border: 1px solid var(--border);
+    background: #0d1117; display: flex; align-items: center; justify-content: center;
+    font-size: 13px; cursor: pointer; user-select: none; transition: transform .08s;
+  }
+  .cell:active { transform: scale(0.88); }
+  .cell.taken { background: var(--accent); border-color: var(--accent); }
+  .cell.next { border-color: var(--warn); border-width: 2px; }
+  .cell.future { opacity: 0.55; }
+  .day-label { grid-column: 1 / -1; font-size: 11px; color: var(--muted); margin-top: 6px; }
+  /* buttons */
+  .big-btn {
+    width: 100%; padding: 16px; border-radius: 14px; border: none;
+    font-size: 17px; font-weight: 700; cursor: pointer; margin-top: 10px;
+  }
+  .big-btn.primary { background: var(--accent); color: #052e12; }
+  .big-btn.secondary { background: #21262d; color: var(--text); border: 1px solid var(--border); }
+  .big-btn.primary:disabled { background: #21262d; color: var(--muted); border: 1px solid var(--border); cursor: default; }
+  /* naproxen */
+  .nap-last { font-size: 14px; margin-top: 8px; color: var(--muted); }
+  .nap-last b { color: var(--text); }
+  .nap-ok { color: var(--accent); }
+  .nap-warn { color: var(--warn); }
+  .done-banner { text-align: center; font-size: 20px; font-weight: 700; color: var(--accent); padding: 8px 0; display: none; }
+  .footnote { color: var(--muted); font-size: 12px; text-align: center; margin-top: 18px; }
+</style>
+</head>
+<body>
+  <h1>💊 doxy tracker</h1>
+  <div class="sub">doxycycline 100mg - twice a day with food - 21 days</div>
+
+  <div class="card">
+    <div class="progress-line"><span><b id="doseCount">0</b> / 42 doses</span><span>day <b id="dayCount">1</b> / 21</span></div>
+    <div class="bar-wrap"><div class="bar" id="bar" style="width:0%"></div></div>
+    <div class="progress-line"><span id="pct">0%</span><span id="endDate">ends Sep 25</span></div>
+  </div>
+
+  <div class="card next-dose">
+    <div class="label" id="nextLabel">next dose</div>
+    <div class="when" id="nextWhen">-</div>
+    <div class="label" id="nextIn">-</div>
+    <button class="big-btn primary" id="takeBtn">Take it now ✓</button>
+  </div>
+
+  <div class="done-banner" id="doneBanner">🏆 course complete. go outside.</div>
+
+  <div class="card">
+    <div class="progress-line"><span><b>naproxen</b> 500mg</span><span>as needed, max every 12h</span></div>
+    <button class="big-btn secondary" id="napBtn">Took naproxen</button>
+    <div class="nap-last" id="napLast">no doses logged yet</div>
+  </div>
+
+  <div class="card">
+    <div class="progress-line"><span><b>the board</b></span><span>tap a pill to toggle</span></div>
+    <div class="grid" id="grid"></div>
+  </div>
+
+  <div class="card" id="syncCard">
+    <div class="progress-line"><span><b>sync</b></span><span id="syncStatus">off</span></div>
+    <div id="syncSetup">
+      <input id="passInput" type="password" inputmode="text" autocomplete="off" placeholder="passcode (same on both devices)" style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--border);background:#0d1117;color:var(--text);font-size:15px;margin-top:10px;">
+      <button class="big-btn secondary" id="syncBtn">turn on sync</button>
+      <div class="footnote" style="margin-top:10px;">pick any passcode - type the same one on your phone and laptop and the board follows you. it never leaves the device unhashed.</div>
+    </div>
+    <div id="syncOn" style="display:none">
+      <div class="footnote" style="margin-top:6px;">state syncs across your devices. <a href="#" id="syncReset" style="color:var(--muted);">turn off on this device</a></div>
+    </div>
+  </div>
+
+  <div class="footnote">synced via supabase - merged per dose, never silently wiped</div>
+
+<script>
+// Course: Sept 5 - Sept 25, 2026. All of it is EDT (UTC-4).
+var ET_OFFSET = "-04:00";
+var START = "2026-09-05";
+var DAYS = 21;
+
+function slotISO(dayIdx, half) { // half 0 = 9am, 1 = 9pm
+  var d = new Date(Date.UTC(2026, 8, 5 + dayIdx));
+  var y = d.getUTCFullYear(), m = String(d.getUTCMonth()+1).padStart(2,"0"), dd = String(d.getUTCDate()).padStart(2,"0");
+  return y + "-" + m + "-" + dd + "T" + (half === 0 ? "09:00:00" : "21:00:00") + ET_OFFSET;
+}
+function slotDate(dayIdx, half) { return new Date(slotISO(dayIdx, half)); }
+
+var SLOTS = [];
+for (var i = 0; i < DAYS; i++) { SLOTS.push({day:i, half:0, t: slotDate(i,0)}); SLOTS.push({day:i, half:1, t: slotDate(i,1)}); }
+
+var KEY = "doxy-tracker-v2";
+var OLD_KEY = "doxy-tracker-v1";
+// v1's pre-seeded doses, so migration can tell seed entries from ones he logged himself
+var V1_SEED = {
+  "0": "2026-09-05T09:00:00-04:00",
+  "1": "2026-09-05T21:00:00-04:00",
+  "2": "2026-09-06T08:45:00-04:00"
+};
+// Actual history: doxy Sept 5 ~9am, Sept 5 ~9pm, Sept 6 ~8:45am (3/42 from his bottle).
+// The Sept 5 ~12am hospital dose came from the hospital's own supply (confirmed Sept 6),
+// so it is deliberately NOT counted here. Naproxen: Sept 5 morning, Sept 5 night, Sept 6 morning.
+var HOSPITAL_EXTRA = "2026-09-05T00:00:00-04:00"; // legacy seed entry, stripped on load
+function freshSeed() {
+  return {
+    deleted: {},
+    doses: {
+      "0": "2026-09-05T09:00:00-04:00",
+      "1": "2026-09-05T21:00:00-04:00",
+      "2": "2026-09-06T08:45:00-04:00"
+    },
+    extras: [],
+    naproxen: [
+      "2026-09-05T08:00:00-04:00",
+      "2026-09-05T21:30:00-04:00",
+      "2026-09-06T08:45:00-04:00"
+    ]
+  };
+}
+function load() {
+  try {
+    var s = JSON.parse(localStorage.getItem(KEY));
+    if (s && s.doses) {
+      if (!s.extras) s.extras = [];
+      if (!s.deleted) s.deleted = {};
+      // hospital dose was hospital supply - never count it, even in old saved states
+      s.extras = s.extras.filter(function(t){ return t !== HOSPITAL_EXTRA; });
+      return s;
+    }
+  } catch(e) {}
+  var seed = freshSeed();
+  try {
+    var old = JSON.parse(localStorage.getItem(OLD_KEY));
+    if (old && old.doses) {
+      // keep anything that isn't a byte-identical v1 seed entry (i.e. he logged/toggled it)
+      Object.keys(old.doses).forEach(function(k) {
+        if (!(k in V1_SEED && old.doses[k] === V1_SEED[k])) seed.doses[k] = old.doses[k];
+      });
+      // merge his naproxen logs, dedupe against seed entries within 1h
+      (old.naproxen || []).forEach(function(t) {
+        var tm = new Date(t).getTime();
+        var dupe = seed.naproxen.some(function(x) { return Math.abs(new Date(x).getTime() - tm) < 3600000; });
+        if (!dupe) seed.naproxen.push(t);
+      });
+      seed.naproxen.sort();
+    }
+  } catch(e) {}
+  try { localStorage.setItem(KEY, JSON.stringify(seed)); localStorage.removeItem(OLD_KEY); } catch(e) {}
+  return seed;
+}
+var state = load();
+function save() {
+  localStorage.setItem(KEY, JSON.stringify(state));
+  syncPush(); // no-op until sync is enabled
+}
+
+function fmtWhen(d) {
+  return d.toLocaleDateString("en-US", {weekday:"short", month:"short", day:"numeric", timeZone:"America/New_York"})
+    + " " + d.toLocaleTimeString("en-US", {hour:"numeric", minute:"2-digit", timeZone:"America/New_York"});
+}
+function relTime(d) {
+  var s = Math.round((d - Date.now())/1000);
+  var past = s < 0; s = Math.abs(s);
+  if (s < 60) return past ? "just now" : "now";
+  var h = Math.floor(s/3600), m = Math.round((s%3600)/60);
+  var str = h > 0 ? h + "h " + m + "m" : m + "m";
+  return past ? str + " ago" : "in " + str;
+}
+function takenCount() { return Object.keys(state.doses).length + (state.extras ? state.extras.length : 0); }
+
+function nextSlot() {
+  var now = Date.now();
+  for (var i = 0; i < SLOTS.length; i++) {
+    if (!state.doses[i]) {
+      return {idx: i, slot: SLOTS[i], overdue: SLOTS[i].t.getTime() < now};
+    }
+  }
+  return null;
+}
+
+function render() {
+  var n = takenCount();
+  document.getElementById("doseCount").textContent = n;
+  document.getElementById("dayCount").textContent = Math.min(DAYS, Math.floor(n/2) + (n % 2 ? 1 : 0) || 1);
+  var pct = Math.round(n/42*100);
+  document.getElementById("bar").style.width = pct + "%";
+  document.getElementById("pct").textContent = pct + "%";
+
+  var ns = nextSlot();
+  var banner = document.getElementById("doneBanner");
+  var takeBtn = document.getElementById("takeBtn");
+  if (!ns) {
+    banner.style.display = "block";
+    document.getElementById("nextLabel").textContent = "all done";
+    document.getElementById("nextWhen").textContent = "🎉";
+    document.getElementById("nextIn").textContent = "";
+    takeBtn.style.display = "none";
+    takeBtn.disabled = true;
+  } else {
+    banner.style.display = "none";
+    takeBtn.style.display = "block";
+    var overdue = ns.overdue;
+    var slotName = (ns.slot.half === 0 ? "☀️ 9:00 AM" : "🌙 9:00 PM") + " - " + ns.slot.t.toLocaleDateString("en-US",{weekday:"short", month:"short", day:"numeric", timeZone:"America/New_York"});
+    document.getElementById("nextLabel").textContent = overdue ? "dose due" : "next dose";
+    var w = document.getElementById("nextWhen");
+    w.textContent = slotName;
+    w.className = "when" + (overdue ? " overdue" : "");
+    document.getElementById("nextIn").textContent = overdue ? "was due " + relTime(ns.slot.t) : relTime(ns.slot.t);
+    // gate the button: only enabled while a slot has arrived and is untaken
+    takeBtn.disabled = !overdue;
+    takeBtn.textContent = overdue ? "Take it now ✓" : "Next dose: " + slotName;
+  }
+
+  // naproxen
+  var naps = state.naproxen;
+  var napEl = document.getElementById("napLast");
+  if (naps.length) {
+    var last = new Date(naps[naps.length-1]);
+    var hrs = (Date.now() - last.getTime())/3600000;
+    napEl.innerHTML = "last dose: <b>" + fmtWhen(last) + "</b> (" + relTime(last) + ") - " +
+      (hrs >= 12 ? "<span class='nap-ok'>clear to take if needed</span>" : "<span class='nap-warn'>wait " + Math.ceil(12-hrs) + "h before another</span>");
+  } else {
+    napEl.textContent = "no doses logged yet";
+  }
+
+  // grid
+  var grid = document.getElementById("grid");
+  grid.innerHTML = "";
+  var now = Date.now();
+  for (var d = 0; d < DAYS; d++) {
+    var lbl = document.createElement("div");
+    lbl.className = "day-label";
+    lbl.textContent = "day " + (d+1) + " - " + slotDate(d,0).toLocaleDateString("en-US",{month:"short",day:"numeric",timeZone:"America/New_York"});
+    grid.appendChild(lbl);
+    for (var h = 0; h < 2; h++) {
+      (function(dayIdx, half){
+        var idx = dayIdx*2 + half;
+        var c = document.createElement("div");
+        c.className = "cell";
+        var taken = state.doses[idx] !== undefined;
+        if (taken) { c.classList.add("taken"); c.textContent = "✓"; }
+        else {
+          c.textContent = half === 0 ? "☀️" : "🌙";
+          if (SLOTS[idx].t.getTime() > now) c.classList.add("future");
+          if (ns && ns.idx === idx) c.classList.add("next");
+        }
+        c.title = fmtWhen(SLOTS[idx].t) + (taken ? " - taken " + fmtWhen(new Date(state.doses[idx])) : "");
+        c.onclick = function() {
+          if (state.doses[idx] !== undefined) {
+            if (confirm("Undo this dose?")) {
+              delete state.doses[idx];
+              state.deleted[idx] = new Date().toISOString(); // tombstone so sync propagates the undo
+              save(); render();
+            }
+          } else {
+            state.doses[idx] = new Date().toISOString();
+            save(); render();
+          }
+        };
+        grid.appendChild(c);
+      })(d, h);
+    }
+  }
+}
+
+document.getElementById("takeBtn").onclick = function() {
+  var ns = nextSlot();
+  if (!ns || !ns.overdue) return; // locked until a slot actually arrives
+  state.doses[ns.idx] = new Date().toISOString();
+  save(); render();
+};
+document.getElementById("napBtn").onclick = function() {
+  var naps = state.naproxen;
+  if (naps.length) {
+    var last = new Date(naps[naps.length-1]);
+    var hrs = (Date.now() - last.getTime())/3600000;
+    if (hrs < 12 && !confirm("It's been less than 12h since the last naproxen. Log anyway?")) return;
+  }
+  naps.push(new Date().toISOString());
+  save(); render();
+};
+
+/* ---------- cross-device sync (supabase) ---------- */
+var SUPA_URL = "https://rqorutizpqehuvcxbymc.supabase.co";
+var SUPA_KEY = "sb_publishable_OJ7VPEfzI64tRhnGuft_yw_Cuu6EtuK";
+var SYNC_KEY_LS = "doxy-sync-key"; // stores only the SHA-256 hash of the passcode
+var sb = (window.supabase && SUPA_KEY.indexOf("__") !== 0) ? window.supabase.createClient(SUPA_URL, SUPA_KEY) : null;
+var syncKey = null;
+try { syncKey = localStorage.getItem(SYNC_KEY_LS); } catch(e) {}
+var pushTimer = null, pulling = false;
+
+function sha256hex(str) {
+  return crypto.subtle.digest("SHA-256", new TextEncoder().encode(str)).then(function(buf) {
+    return Array.prototype.map.call(new Uint8Array(buf), function(b){ return ("0"+b.toString(16)).slice(-2); }).join("");
+  });
+}
+function syncEnabled() { return !!(sb && syncKey); }
+
+function dedupeTimes(arr, windowMs) {
+  var out = [];
+  arr.slice().sort().forEach(function(t) {
+    var tm = new Date(t).getTime();
+    if (!out.some(function(x){ return Math.abs(new Date(x).getTime() - tm) < windowMs; })) out.push(t);
+  });
+  return out;
+}
+// merge remote into local: union of taken doses (tombstones win when newer),
+// union of extras/naproxen. a dose is never silently dropped.
+function mergeState(local, remote) {
+  if (!remote || !remote.doses) return { state: local, changed: false };
+  var changed = false;
+  var l = local, r = remote;
+  if (!l.deleted) l.deleted = {};
+  var rdel = r.deleted || {};
+  var idxs = {};
+  Object.keys(l.doses).forEach(function(k){ idxs[k]=1; });
+  Object.keys(r.doses).forEach(function(k){ idxs[k]=1; });
+  Object.keys(l.deleted).forEach(function(k){ idxs[k]=1; });
+  Object.keys(rdel).forEach(function(k){ idxs[k]=1; });
+  Object.keys(idxs).forEach(function(k) {
+    var ld = l.deleted[k], rd = rdel[k];
+    var tomb = (ld && rd) ? (Date.parse(ld) >= Date.parse(rd) ? ld : rd) : (ld || rd || null);
+    var a = l.doses[k], b = r.doses[k];
+    var dose = a && b ? (Date.parse(a) <= Date.parse(b) ? a : b) : (a || b || null); // keep earliest real log time
+    if (tomb && (!dose || Date.parse(tomb) > Date.parse(dose))) dose = null; // undo wins when it is the later event
+    if (tomb) { if (l.deleted[k] !== tomb) { l.deleted[k] = tomb; changed = true; } }
+    var before = l.doses[k];
+    if (dose) { if (before !== dose) { l.doses[k] = dose; changed = true; } }
+    else if (before !== undefined) { delete l.doses[k]; changed = true; }
+  });
+  var ex = dedupeTimes((l.extras||[]).concat(r.extras||[]).filter(function(t){ return t !== HOSPITAL_EXTRA; }), 60000);
+  if (JSON.stringify(ex) !== JSON.stringify(l.extras||[])) { l.extras = ex; changed = true; }
+  var nap = dedupeTimes((l.naproxen||[]).concat(r.naproxen||[]), 60000);
+  if (JSON.stringify(nap) !== JSON.stringify(l.naproxen||[])) { l.naproxen = nap; changed = true; }
+  return { state: l, changed: changed };
+}
+
+function setSyncStatus(txt) {
+  var el = document.getElementById("syncStatus");
+  if (el) el.textContent = txt;
+}
+function showSyncUI() {
+  var on = syncEnabled();
+  document.getElementById("syncSetup").style.display = on ? "none" : "block";
+  document.getElementById("syncOn").style.display = on ? "block" : "none";
+  if (on) setSyncStatus("on");
+}
+function syncPush() {
+  if (!syncEnabled()) return;
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(function() {
+    setSyncStatus("pushing...");
+    sb.rpc("doxy_set", { k: syncKey, v: state }).then(function(res) {
+      if (res.error) { setSyncStatus("push failed"); return; }
+      setSyncStatus("synced " + new Date().toLocaleTimeString("en-US", {hour:"numeric", minute:"2-digit"}));
+    }).catch(function(){ setSyncStatus("push failed"); });
+  }, 400);
+}
+function syncPull(andPush) {
+  if (!syncEnabled() || pulling) return Promise.resolve();
+  pulling = true;
+  return sb.rpc("doxy_get", { k: syncKey }).then(function(res) {
+    pulling = false;
+    if (res.error) { setSyncStatus("offline"); return; }
+    var remote = res.data;
+    if (remote) {
+      var m = mergeState(state, remote);
+      if (m.changed) {
+        state = m.state;
+        localStorage.setItem(KEY, JSON.stringify(state));
+        render();
+        if (andPush) syncPush(); // push merged result up so both sides converge
+      }
+      setSyncStatus("synced " + new Date().toLocaleTimeString("en-US", {hour:"numeric", minute:"2-digit"}));
+    } else if (andPush) {
+      syncPush(); // first device: migrate existing local state up
+    }
+  }).catch(function(){ pulling = false; setSyncStatus("offline"); });
+}
+
+document.getElementById("syncBtn").onclick = function() {
+  var v = document.getElementById("passInput").value.trim();
+  if (v.length < 4) { alert("Passcode needs at least 4 characters."); return; }
+  if (!sb) { alert("Sync client failed to load - check your connection and reload."); return; }
+  setSyncStatus("enabling...");
+  sha256hex("doxy-tracker-sync:" + v).then(function(k) {
+    syncKey = k;
+    try { localStorage.setItem(SYNC_KEY_LS, k); } catch(e) {}
+    document.getElementById("passInput").value = "";
+    showSyncUI();
+    syncPull(true); // pulls remote if it exists, otherwise migrates this device's state up
+  });
+};
+document.getElementById("syncReset").onclick = function(e) {
+  e.preventDefault();
+  try { localStorage.removeItem(SYNC_KEY_LS); } catch(err) {}
+  syncKey = null;
+  setSyncStatus("off");
+  showSyncUI();
+};
+
+showSyncUI();
+if (syncEnabled()) syncPull(true);
+setInterval(function(){ syncPull(false); }, 20000);
+document.addEventListener("visibilitychange", function(){ if (!document.hidden) syncPull(false); });
+
+render();
+setInterval(render, 60000);
+</script>
+</body>
+</html>
+
