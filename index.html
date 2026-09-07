@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="doxy">
-<!-- build: 2026-09-06h animate pass 2/3 continuity: unlock transition, day-cleared pulse, next-dose + overdue attention -->
+<!-- build: 2026-09-06i animate pass 3/3 focal: course-complete burst (one authored moment, transform/opacity only) -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💊</text></svg>">
 <style>
@@ -67,6 +67,16 @@
   @keyframes bar-bump { 0% { filter: brightness(1.8); } 100% { filter: brightness(1); } }
   .done-banner.pop { animation: banner-pop .7s cubic-bezier(.2,1.3,.4,1); }
   @keyframes banner-pop { 0% { transform: scale(.7); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+  /* animate pass: focal moment - the course-complete burst. runs once per completion, never loops */
+  .burst-particle {
+    position: fixed; left: 0; top: 0; z-index: 98; pointer-events: none;
+    font-size: 18px; line-height: 1;
+    animation: burst .85s cubic-bezier(.16,1,.3,1) forwards;
+  }
+  @keyframes burst {
+    0% { transform: translate(var(--x0), var(--y0)) scale(.4); opacity: 1; }
+    100% { transform: translate(var(--x1), var(--y1)) scale(1.1) rotate(var(--rot)); opacity: 0; }
+  }
   /* animate pass: continuity - make state changes and the lock-to-app transition legible */
   .day-label { transition: color .25s ease; }
   .day.just-cleared { animation: day-clear .7s ease; border-radius: 12px; }
@@ -227,7 +237,7 @@
       </div>
       <div class="lock-note">same passcode you use for sync</div>
       <div class="lock-note"><a href="#" id="lockReset" style="color:var(--muted);">forgot it? reset this device</a></div>
-      <div class="lock-note" style="opacity:.5">build 2026-09-06h</div>
+      <div class="lock-note" style="opacity:.5">build 2026-09-06i</div>
     </div>
   </div>
 
@@ -357,6 +367,29 @@ function load() {
 var state = load();
 var lastLoggedIdx = null; // set on tap, consumed by render for the dose-pop animation
 var lastClearedDay = null; // set when a tap completes both doses of a day, consumed by render
+var burstDone = false; // the course-complete burst fires once per completion, not on every render
+function celebrate(anchorEl) {
+  if (burstDone) return;
+  burstDone = true;
+  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  var r = anchorEl.getBoundingClientRect();
+  var cx = r.left + r.width/2, cy = r.top + r.height/2;
+  var glyphs = ["\uD83D\uDC8A", "\u2728", "\uD83D\uDC8A", "\u2728", "\uD83C\uDFC6"]; // pill, sparkles, trophy
+  for (var i = 0; i < 14; i++) {
+    var p = document.createElement("span");
+    p.className = "burst-particle";
+    p.textContent = glyphs[i % glyphs.length];
+    var ang = (Math.PI * 2 * i / 14) + Math.random() * 0.4;
+    var dist = 90 + Math.random() * 110;
+    p.style.setProperty("--x0", cx + "px");
+    p.style.setProperty("--y0", cy + "px");
+    p.style.setProperty("--x1", (cx + Math.cos(ang)*dist) + "px");
+    p.style.setProperty("--y1", (cy + Math.sin(ang)*dist - 40) + "px");
+    p.style.setProperty("--rot", (Math.random()*160-80) + "deg");
+    document.body.appendChild(p);
+    (function(el){ setTimeout(function(){ el.remove(); }, 1000); })(p);
+  }
+}
 function save() {
   localStorage.setItem(KEY, JSON.stringify(state));
   syncPush(); // no-op until sync is enabled
@@ -406,7 +439,11 @@ function render() {
   var banner = document.getElementById("doneBanner");
   var takeBtn = document.getElementById("takeBtn");
   if (!ns) {
-    if (banner.style.display !== "block") { banner.classList.remove("pop"); void banner.offsetWidth; banner.classList.add("pop"); }
+    if (banner.style.display !== "block") {
+      banner.classList.remove("pop"); void banner.offsetWidth; banner.classList.add("pop");
+      banner.style.display = "block";
+      celebrate(banner);
+    }
     banner.style.display = "block";
     document.getElementById("nextLabel").textContent = "all done";
     document.getElementById("nextWhen").textContent = "🎉";
@@ -415,6 +452,7 @@ function render() {
     takeBtn.disabled = true;
   } else {
     banner.style.display = "none";
+    burstDone = false;
     takeBtn.style.display = "block";
     var overdue = ns.overdue;
     var slotName = (ns.slot.half === 0 ? "☀️ 9:00 AM" : "🌙 9:00 PM") + " - " + ns.slot.t.toLocaleDateString("en-US",{weekday:"short", month:"short", day:"numeric", timeZone:"America/New_York"});
@@ -743,7 +781,7 @@ document.getElementById("lockReset").onclick = function(e) {
 // A tab left open keeps running its old build; Pages can also serve a cached
 // copy briefly. If the deployed build is newer than this one, say so instead
 // of letting anyone trust stale UI.
-var BUILD = "2026-09-06h";
+var BUILD = "2026-09-06i";
 function checkBuild() {
   fetch("index.html?buildcheck=" + Date.now(), { cache: "no-store" }).then(function(r){ return r.text(); }).then(function(html) {
     var m = html.match(/<!-- build: (\S+)/);
