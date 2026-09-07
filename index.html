@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="doxy">
-<!-- build: 2026-09-06g animate pass 1/3 feedback: passcode shake, count tick, naproxen confirm, button press -->
+<!-- build: 2026-09-06h animate pass 2/3 continuity: unlock transition, day-cleared pulse, next-dose + overdue attention -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💊</text></svg>">
 <style>
@@ -67,6 +67,28 @@
   @keyframes bar-bump { 0% { filter: brightness(1.8); } 100% { filter: brightness(1); } }
   .done-banner.pop { animation: banner-pop .7s cubic-bezier(.2,1.3,.4,1); }
   @keyframes banner-pop { 0% { transform: scale(.7); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+  /* animate pass: continuity - make state changes and the lock-to-app transition legible */
+  .day-label { transition: color .25s ease; }
+  .day.just-cleared { animation: day-clear .7s ease; border-radius: 12px; }
+  @keyframes day-clear {
+    0% { box-shadow: 0 0 0 0 rgba(74,222,128,0); }
+    30% { box-shadow: 0 0 0 3px rgba(74,222,128,.55); }
+    100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); }
+  }
+  .cell.next { animation: next-pulse 2.2s ease-in-out infinite; }
+  @keyframes next-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(251,191,36,0); }
+    50% { box-shadow: 0 0 10px 1px rgba(251,191,36,.45); }
+  }
+  .big-btn.primary.due { animation: due-glow 2.2s ease-in-out infinite; }
+  @keyframes due-glow {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); }
+    50% { box-shadow: 0 0 14px 2px rgba(74,222,128,.4); }
+  }
+  body.unlocking #lock { animation: lock-out .22s ease-in forwards; }
+  @keyframes lock-out { to { opacity: 0; transform: scale(.96); } }
+  #app.app-in { animation: app-in .45s cubic-bezier(.16,1,.3,1); }
+  @keyframes app-in { 0% { opacity: 0; transform: translateY(14px); } 100% { opacity: 1; transform: none; } }
   /* animate pass: feedback - acknowledge the action, fast */
   .big-btn:not(:disabled) { transition: transform .1s ease, filter .15s ease, background .15s ease, border-color .15s ease; }
   .big-btn:not(:disabled):active { transform: scale(.97); }
@@ -91,6 +113,8 @@
     .cell.just-logged, .bar.bump, .done-banner.pop { animation: none; }
     .cell, .bar { transition: none; }
     .lock-card.shake, #doseCount.tick, .big-btn.logged-flash { animation: none; }
+    .day.just-cleared, .cell.next, .big-btn.primary.due { animation: none; }
+    body.unlocking #lock, #app.app-in { animation: none; }
     .nap-last.flash { animation: nap-flash-rm .4s ease; }
     .big-btn:not(:disabled) { transition: filter .15s ease, background .15s ease, border-color .15s ease; }
     .big-btn:not(:disabled):active { transform: none; }
@@ -203,7 +227,7 @@
       </div>
       <div class="lock-note">same passcode you use for sync</div>
       <div class="lock-note"><a href="#" id="lockReset" style="color:var(--muted);">forgot it? reset this device</a></div>
-      <div class="lock-note" style="opacity:.5">build 2026-09-06g</div>
+      <div class="lock-note" style="opacity:.5">build 2026-09-06h</div>
     </div>
   </div>
 
@@ -332,6 +356,7 @@ function load() {
 }
 var state = load();
 var lastLoggedIdx = null; // set on tap, consumed by render for the dose-pop animation
+var lastClearedDay = null; // set when a tap completes both doses of a day, consumed by render
 function save() {
   localStorage.setItem(KEY, JSON.stringify(state));
   syncPush(); // no-op until sync is enabled
@@ -400,6 +425,7 @@ function render() {
     document.getElementById("nextIn").textContent = overdue ? "was due " + relTime(ns.slot.t) : relTime(ns.slot.t);
     // gate the button: only enabled while a slot has arrived and is untaken
     takeBtn.disabled = !overdue;
+    takeBtn.classList.toggle("due", overdue);
     takeBtn.textContent = overdue ? "Take it now ✓" : "Next dose: " + slotName;
   }
 
@@ -422,7 +448,10 @@ function render() {
   for (var d = 0; d < DAYS; d++) {
     var dayEl = document.createElement("div");
     dayEl.className = "day";
-    if (state.doses[d*2] !== undefined && state.doses[d*2+1] !== undefined) dayEl.classList.add("cleared");
+    if (state.doses[d*2] !== undefined && state.doses[d*2+1] !== undefined) {
+      dayEl.classList.add("cleared");
+      if (d === lastClearedDay) dayEl.classList.add("just-cleared");
+    }
     var lbl = document.createElement("div");
     lbl.className = "day-label";
     lbl.textContent = "day " + (d+1) + " - " + slotDate(d,0).toLocaleDateString("en-US",{month:"short",day:"numeric",timeZone:"America/New_York"});
@@ -453,6 +482,7 @@ function render() {
           } else {
             state.doses[idx] = new Date().toISOString();
             lastLoggedIdx = idx;
+            if (state.doses[dayIdx*2] !== undefined && state.doses[dayIdx*2+1] !== undefined) lastClearedDay = dayIdx;
             save(); render();
           }
         };
@@ -463,6 +493,7 @@ function render() {
   }
   lastRenderedCount = n;
   lastLoggedIdx = null; // pop animation is consumed by the first render after the tap
+  lastClearedDay = null;
 }
 
 document.getElementById("takeBtn").onclick = function() {
@@ -470,6 +501,7 @@ document.getElementById("takeBtn").onclick = function() {
   if (!ns || !ns.overdue) return; // locked until a slot actually arrives
   state.doses[ns.idx] = new Date().toISOString();
   lastLoggedIdx = ns.idx;
+  if (state.doses[ns.slot.day*2] !== undefined && state.doses[ns.slot.day*2+1] !== undefined) lastClearedDay = ns.slot.day;
   save(); render();
 };
 document.getElementById("napBtn").onclick = function() {
@@ -637,8 +669,15 @@ function startApp() {
 }
 
 function unlock() {
-  document.body.classList.remove("locked");
-  startApp();
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduce) { document.body.classList.remove("locked"); startApp(); return; }
+  document.body.classList.add("unlocking");
+  setTimeout(function() {
+    document.body.classList.remove("locked");
+    document.body.classList.remove("unlocking");
+    document.getElementById("app").classList.add("app-in");
+    startApp();
+  }, 220);
 }
 
 function lockFail(msg) {
@@ -704,7 +743,7 @@ document.getElementById("lockReset").onclick = function(e) {
 // A tab left open keeps running its old build; Pages can also serve a cached
 // copy briefly. If the deployed build is newer than this one, say so instead
 // of letting anyone trust stale UI.
-var BUILD = "2026-09-06g";
+var BUILD = "2026-09-06h";
 function checkBuild() {
   fetch("index.html?buildcheck=" + Date.now(), { cache: "no-store" }).then(function(r){ return r.text(); }).then(function(html) {
     var m = html.match(/<!-- build: (\S+)/);
