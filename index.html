@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="doxy">
-<!-- build: 2026-09-06i animate pass 3/3 focal: course-complete burst (one authored moment, transform/opacity only) -->
+<!-- build: 2026-09-10a feature: naproxen backdating + doxy-dose pairing -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💊</text></svg>">
 <style>
@@ -143,6 +143,15 @@
   .big-btn.primary:disabled { background: #21262d; color: var(--muted); border: 1px solid var(--border); cursor: default; }
   /* naproxen */
   .nap-last { font-size: 14px; margin-top: 8px; color: var(--muted); }
+  .nap-last a { color: var(--muted); font-size: 12px; }
+  .nap-early { font-size: 13px; margin-top: 8px; }
+  .nap-early a { color: var(--muted); }
+  .nap-input {
+    width: 100%; padding: 12px; border-radius: 10px; margin-top: 10px;
+    border: 1px solid var(--border); background: #0d1117; color: var(--text);
+    font-size: 15px; color-scheme: dark;
+  }
+  .nap-input:focus { outline: none; border-color: var(--accent); }
   .nap-last b { color: var(--text); }
   .nap-ok { color: var(--accent); }
   .nap-warn { color: var(--warn); }
@@ -237,7 +246,7 @@
       </div>
       <div class="lock-note">same passcode you use for sync</div>
       <div class="lock-note"><a href="#" id="lockReset" style="color:var(--muted);">forgot it? reset this device</a></div>
-      <div class="lock-note" style="opacity:.5">build 2026-09-06i</div>
+      <div class="lock-note" style="opacity:.5">build 2026-09-10a</div>
     </div>
   </div>
 
@@ -265,6 +274,11 @@
     <div class="progress-line"><span><b>naproxen</b> 500mg</span><span>as needed, max every 12h</span></div>
     <button class="big-btn secondary" id="napBtn">Took naproxen</button>
     <div class="nap-last" id="napLast">no doses logged yet</div>
+    <div class="nap-early"><a href="#" id="napEarlyToggle">took it earlier? log the real time</a></div>
+    <div id="napEarly" style="display:none">
+      <input id="napEarlyTime" class="nap-input" type="datetime-local">
+      <button class="big-btn secondary" id="napEarlyBtn">log it</button>
+    </div>
   </div>
 
   </div>
@@ -474,7 +488,15 @@ function render() {
     var last = new Date(naps[naps.length-1]);
     var hrs = (Date.now() - last.getTime())/3600000;
     napEl.innerHTML = "last dose: <b>" + fmtWhen(last) + "</b> (" + relTime(last) + ") - " +
-      (hrs >= 12 ? "<span class='nap-ok'>clear to take if needed</span>" : "<span class='nap-warn'>wait " + Math.ceil(12-hrs) + "h before another</span>");
+      (hrs >= 12 ? "<span class='nap-ok'>clear to take if needed</span>" : "<span class='nap-warn'>wait " + Math.ceil(12-hrs) + "h before another</span>") +
+      ' <a href="#" id="napEditLast">edit time</a>';
+    document.getElementById("napEditLast").onclick = function(e) {
+      e.preventDefault();
+      editingNapIdx = state.naproxen.length - 1;
+      document.getElementById("napEarlyTime").value = toLocalInputValue(last);
+      document.getElementById("napEarlyBtn").textContent = "update";
+      document.getElementById("napEarly").style.display = "block";
+    };
   } else {
     napEl.textContent = "no doses logged yet";
   }
@@ -518,10 +540,12 @@ function render() {
               save(); render();
             }
           } else {
-            state.doses[idx] = new Date().toISOString();
+            var ts = new Date().toISOString();
+            state.doses[idx] = ts;
             lastLoggedIdx = idx;
             if (state.doses[dayIdx*2] !== undefined && state.doses[dayIdx*2+1] !== undefined) lastClearedDay = dayIdx;
             save(); render();
+            maybePairNaproxen(ts);
           }
         };
         dayEl.appendChild(c);
@@ -534,13 +558,33 @@ function render() {
   lastClearedDay = null;
 }
 
+// he takes naproxen at the same time as doxy - offer to log it with the same
+// timestamp (one tap), but only when the last naproxen is ~11h+ old so it
+// doesn't nag twice a day when he skips.
+function maybePairNaproxen(ts) {
+  var naps = state.naproxen;
+  if (naps.length) {
+    var hrs = (Date.now() - new Date(naps[naps.length-1]).getTime())/3600000;
+    if (hrs < 11) return;
+  }
+  if (confirm("naproxen with it? OK logs it at the same time.")) {
+    naps.push(ts);
+    sortNaps();
+    save(); render();
+  }
+}
+function sortNaps() {
+  state.naproxen.sort(function(a,b){ return Date.parse(a) - Date.parse(b); });
+}
 document.getElementById("takeBtn").onclick = function() {
   var ns = nextSlot();
   if (!ns || !ns.overdue) return; // locked until a slot actually arrives
-  state.doses[ns.idx] = new Date().toISOString();
+  var ts = new Date().toISOString();
+  state.doses[ns.idx] = ts;
   lastLoggedIdx = ns.idx;
   if (state.doses[ns.slot.day*2] !== undefined && state.doses[ns.slot.day*2+1] !== undefined) lastClearedDay = ns.slot.day;
   save(); render();
+  maybePairNaproxen(ts);
 };
 document.getElementById("napBtn").onclick = function() {
   var naps = state.naproxen;
@@ -550,6 +594,7 @@ document.getElementById("napBtn").onclick = function() {
     if (hrs < 12 && !confirm("It's been less than 12h since the last naproxen. Log anyway?")) return;
   }
   naps.push(new Date().toISOString());
+  sortNaps();
   save(); render();
   var nb = document.getElementById("napBtn");
   nb.classList.remove("logged-flash"); void nb.offsetWidth; nb.classList.add("logged-flash");
@@ -557,6 +602,43 @@ document.getElementById("napBtn").onclick = function() {
   setTimeout(function(){ nb.textContent = "Took naproxen"; }, 1200);
   var nl = document.getElementById("napLast");
   nl.classList.remove("flash"); void nl.offsetWidth; nl.classList.add("flash");
+};
+
+/* ---------- naproxen backdating ---------- */
+// took it earlier and didn't mark it (or marked it late): log/edit the real time.
+var editingNapIdx = null; // null = adding a dose, number = fixing that entry's time
+function toLocalInputValue(d) {
+  var p = function(n){ return String(n).padStart(2,"0"); };
+  return d.getFullYear() + "-" + p(d.getMonth()+1) + "-" + p(d.getDate()) +
+    "T" + p(d.getHours()) + ":" + p(d.getMinutes());
+}
+document.getElementById("napEarlyToggle").onclick = function(e) {
+  e.preventDefault();
+  var panel = document.getElementById("napEarly");
+  if (panel.style.display === "none") {
+    editingNapIdx = null;
+    document.getElementById("napEarlyTime").value = toLocalInputValue(new Date());
+    document.getElementById("napEarlyBtn").textContent = "log it";
+    panel.style.display = "block";
+  } else {
+    panel.style.display = "none";
+  }
+};
+document.getElementById("napEarlyBtn").onclick = function() {
+  var v = document.getElementById("napEarlyTime").value;
+  if (!v) { alert("pick a date and time first"); return; }
+  var t = new Date(v);
+  if (isNaN(t.getTime())) { alert("that time doesn't look right"); return; }
+  if (t.getTime() > Date.now() + 60000 && !confirm("that's in the future - log anyway?")) return;
+  if (editingNapIdx === null) {
+    state.naproxen.push(t.toISOString());
+  } else {
+    state.naproxen[editingNapIdx] = t.toISOString();
+  }
+  sortNaps();
+  editingNapIdx = null;
+  document.getElementById("napEarly").style.display = "none";
+  save(); render();
 };
 
 /* ---------- cross-device sync (supabase) ---------- */
@@ -781,7 +863,7 @@ document.getElementById("lockReset").onclick = function(e) {
 // A tab left open keeps running its old build; Pages can also serve a cached
 // copy briefly. If the deployed build is newer than this one, say so instead
 // of letting anyone trust stale UI.
-var BUILD = "2026-09-06i";
+var BUILD = "2026-09-10a";
 function checkBuild() {
   fetch("index.html?buildcheck=" + Date.now(), { cache: "no-store" }).then(function(r){ return r.text(); }).then(function(html) {
     var m = html.match(/<!-- build: (\S+)/);
@@ -800,5 +882,6 @@ lockInput.focus();
 </script>
 </body>
 </html>
+
 
 
